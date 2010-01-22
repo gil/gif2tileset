@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Application xmlns:mx="http://www.adobe.com/2006/mxml" layout="absolute">
+
+	<mx:Script>
+		<![CDATA[
+			import mx.graphics.codec.IImageEncoder;
+			import mx.graphics.codec.JPEGEncoder;
+			import mx.containers.Box;
+			import mx.controls.Alert;
+			import mx.core.UIComponent;
+			import mx.graphics.codec.PNGEncoder;
+			import mx.utils.ObjectUtil;
+			import flash.utils.getTimer;
+			import org.bytearray.gif.decoder.GIFDecoder;
+			import org.bytearray.gif.frames.GIFFrame;
+			import org.bytearray.gif.player.GIFPlayer;
+
+			private var fileRef:FileReference;
+			private var spriteSheet:UIComponent;
+			private var spriteBitmapData:BitmapData;
+			private var gifPlayer:GIFPlayer;
+
+			[Bindable]
+			private var frWidth:int = 0;
+
+			[Bindable]
+			private var frHeight:int = 0;
+
+			/**
+			 * @private
+			 * Configure and show dialog to open the file
+			 */
+			private function openGif():void
+			{
+				if (fileRef == null)
+				{
+					fileRef = new FileReference();
+				}
+
+				fileRef.addEventListener(Event.SELECT, onSelected);
+				fileRef.addEventListener(Event.COMPLETE, onComplete);
+
+				fileRef.browse([new FileFilter("GIFs", "*.gif;")]);
+			}
+
+			/**
+			 * @private
+			 * When the file is selected, load it.
+			 */
+			private function onSelected(event:Event):void
+			{
+				fileRef.load();
+			}
+
+			/**
+			 * @private
+			 * When the file is loaded, create the preview and the Tile Set
+			 */
+			private function onComplete(event:Event):void
+			{
+				createPreview(copyBytes(fileRef.data));
+				createTileset(copyBytes(fileRef.data));
+			}
+
+			/**
+			 * @private
+			 * Copy the ByteArray, to avoid problems with same reference in FileReference
+			 */
+			private function copyBytes(bytes:ByteArray):ByteArray
+			{
+				return ObjectUtil.copy(bytes) as ByteArray;
+			}
+
+			/**
+			 * @private
+			 * Create the animated preview image
+			 */
+			private function createPreview(bytes:ByteArray):void
+			{
+				if (gifPlayer != null)
+				{
+					gifPlayer.dispose();
+				}
+
+				gifPlayer = new GIFPlayer();
+				gifPlayer.loadBytes(bytes);
+
+				var frame:GIFFrame = gifPlayer.getFrame(1);
+				frWidth = frame.bitmapData.width;
+				frHeight = frame.bitmapData.height;
+
+				img.source = gifPlayer;
+				img.width = Math.min(frWidth, pnOptions.width);
+			}
+
+			/**
+			 * @private
+			 * Create the Tile Set
+			 */
+			private function createTileset(bytes:ByteArray):void
+			{
+				// Decode the GIF into frames
+				var decoder:GIFDecoder = new GIFDecoder();
+				decoder.read(bytes);
+
+				var frameCount:int = decoder.getFrameCount();
+				var frameSize:Rectangle = decoder.getFrameSize();
+
+				// Should limit total columns?
+				var totalCols:int = (cbLimitCols.selected ? nsCols.value : frameCount);
+
+				var totalWidth:int = (frameCount > totalCols ? totalCols : frameCount) * frameSize.width;
+				var totalHeight:int = (int(frameCount / totalCols) + (frameCount % totalCols ? 1 : 0)) * frameSize.height;
+
+				// Check if we can draw the Tile Set
+				if (totalWidth > 2880 || totalHeight > 2880)
+				{
+					Alert.show("Flash Player doesn't support generating Tile Sets bigger than 2880x2880 pixels, sorry! ;(");
+					return;
+				}
+
+				// Create UIComponent to display TileSet on screen 
+				spriteSheet = new UIComponent();
+				spriteSheet.width = totalWidth;
+				spriteSheet.height = totalHeight;
+
+				// Create BitmapData to store the TileSet
+				spriteBitmapData = new BitmapData(totalWidth, totalHeight, true, 0x00000000);
+
+				// Generate TileSet
+				for (var i:int = 0; i < frameCount; i++)
+				{
+					var frameBitmap:BitmapData = decoder.getFrame(i).bitmapData;
+
+					// Frame position on Tile Set
+					var col:int = (i % totalCols);
+					var row:int = int(i / totalCols);
+					var point:Point = new Point(col * frameSize.width, row * frameSize.height);
+
+					spriteBitmapData.copyPixels(frameBitmap, new Rectangle(0, 0, frameBitmap.width, frameBitmap.height), point);
+				}
+
+				// Draw TileSet to display
+				spriteSheet.graphics.beginBitmapFill(spriteBitmapData);
+				spriteSheet.graphics.drawRect(0, 0, spriteSheet.width, spriteSheet.height);
+
+				pnTileSet.removeAllChildren();
+				pnTileSet.addChild(spriteSheet);
+			}
+
+			/**
+			 * @private
+			 * Show dialog and save the Tile Set as a PNG or JPEG file
+			 */
+			private function saveTileset():void
+			{
+				var encoder:IImageEncoder;
+				var extension:String;
+
+				if (rbPNG.selected)
+				{
+					encoder = new PNGEncoder();
+					extension = ".png";
+				}
+				else
+				{
+					encoder = new JPEGEncoder(100);
+					extension = ".jpg";
+				}
+
+				var saveFileReferente:FileReference = new FileReference();
+
+				saveFileReferente.save(encoder.encode(spriteBitmapData), "tileset_" + getTimer() + extension);
+			}
+		]]>
+	</mx:Script>
+
+	<mx:HDividedBox height="100%" width="100%">
+
+		<mx:VDividedBox height="100%" minWidth="250">
+
+			<mx:Panel id="pnOptions" height="160" width="100%" horizontalAlign="center"
+				paddingTop="8" verticalGap="15"
+				title="Options">
+
+				<mx:HBox>
+
+					<mx:Button label="Open Gif"
+						click="openGif()"/>
+
+					<mx:Button label="Save Tile Set"
+						click="saveTileset()"/>
+
+				</mx:HBox>
+
+				<mx:HBox horizontalGap="2" verticalAlign="middle">
+
+					<mx:CheckBox id="cbLimitCols" label="Limit to " fontWeight="bold"/>
+
+					<mx:NumericStepper id="nsCols" enabled="{cbLimitCols.selected}" maximum="100"
+						minimum="1" value="4" width="60"/>
+
+					<mx:Label text=" columns." fontWeight="bold"/>
+
+				</mx:HBox>
+
+				<mx:HBox horizontalGap="2" verticalAlign="middle">
+
+					<mx:Label text="Output format:" fontWeight="bold"/>
+					<mx:RadioButton id="rbPNG" label="PNG" selected="true"/>
+					<mx:RadioButton id="rbJPEG" label="JPEG"/>
+
+				</mx:HBox>
+
+			</mx:Panel>
+
+			<mx:Panel height="100%" layout="vertical" width="100%" horizontalAlign="center"
+				paddingTop="8"
+				title="Preview">
+
+				<mx:Label text="Size:" fontWeight="bold"/>
+				<mx:Label text="Width: {frWidth} px"/>
+				<mx:Label text="Height: {frHeight} px"/>
+
+				<mx:Image id="img" scaleContent="true"/>
+
+			</mx:Panel>
+
+		</mx:VDividedBox>
+
+		<mx:Panel id="pnTileSet" height="100%"
+			title="Tile Set">
+
+		</mx:Panel>
+
+	</mx:HDividedBox>
+
+</mx:Application>

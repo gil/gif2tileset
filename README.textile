@@ -1,0 +1,3 @@
+This is a very simple experimental Adobe Flex project, created to convert Animated GIF files into "Tile Sets":http://en.wikipedia.org/wiki/Tileset#Tile_set, used mostly in Game Development.
+
+This project uses the "as3gif":http://code.google.com/p/as3gif/ project to parse the Animated GIF file. You can get more information here: "http://code.google.com/p/as3gif/":http://code.google.com/p/as3gif/
